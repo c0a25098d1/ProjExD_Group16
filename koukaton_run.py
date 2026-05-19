@@ -35,7 +35,7 @@ class Player:
     def update(self):
         if self.jump:
             self.rect.y += self.y_speed
-            self.y_speed += 1
+            self.y_seed += 1
 
             if self.rect.y >= 420:
                 self.rect.y = 420
