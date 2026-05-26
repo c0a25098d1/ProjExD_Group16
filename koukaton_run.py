@@ -16,6 +16,7 @@ GROUND_Y = 500
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 RED = (255, 0, 0)
+BLUE = (0, 0, 255)
 SKY = (120, 200, 255)
 YELLOW = (255, 220, 0)
 
@@ -37,7 +38,7 @@ class Bird(pg.sprite.Sprite):
         # キャラクター画像の読み込みとサイズ調整
         self.img_run = pg.transform.scale(pg.image.load("fig/2.png").convert_alpha(), (60, 80))   # 動いている時
         self.img_jump = pg.transform.scale(pg.image.load("fig/6.png").convert_alpha(), (60, 80))  # ジャンプ時
-        
+        self.img_crouch = pg.transform.scale(pg.image.load("fig/4.png").convert_alpha(), (60, 30))  # しゃがんでいる時
         # ジャンプ時の効果音を読み込む
         self.se_jump = pg.mixer.Sound("fig/sound/junp.wav")
 
@@ -64,7 +65,17 @@ class Bird(pg.sprite.Sprite):
             self.on_ground = False
 
         # 状態に合わせて画像を切り替える
-        if self.on_ground:
+        
+        self.rect.width = 60
+        self.rect.height = 80
+        if key_lst[pg.K_DOWN]:
+            
+            self.image = self.img_crouch
+            # self.rect = self.image.get_rect()
+            self.rect.width = 60
+            self.rect.height = 30
+
+        elif self.on_ground:
             self.image = self.img_run
         else:
             self.image = self.img_jump
@@ -75,19 +86,37 @@ class Bird(pg.sprite.Sprite):
             self.se_jump.play()
             self.y_speed = self.jump_force
             self.on_ground = False
-
+        
 class Obstacle(pg.sprite.Sprite):
     """
-    障害物（赤い矩形）に関するクラス
+    障害物（ジャンプで避けられる赤い矩形）に関するクラス
     """
     def __init__(self, speed):
         super().__init__()
-        height = random.randint(40, 80)
-        self.image = pg.Surface((50, height))
-        self.image.fill(RED)
+        self.fire = pg.image.load("fig/fire.png").convert_alpha()
+        height = random.randint(55, 80)
+        self.image = pg.transform.scale(self.fire, (60, height))
         self.rect = self.image.get_rect()
         self.rect.left = WIDTH
         self.rect.bottom = GROUND_Y
+        self.speed = speed
+
+    def update(self):
+        self.rect.x -= self.speed
+        if check_bound_horizontal(self.rect):
+            self.kill()
+
+class Helfobstacle(pg.sprite.Sprite):
+    """
+    障害物（しゃがみで避けられる青い矩形）に関するクラス
+    """
+    def __init__(self, speed):
+        super().__init__()
+        self.wall = pg.image.load("fig/wall.jpg").convert_alpha()
+        self.image = pg.transform.scale(self.wall, (50, HEIGHT))
+        self.rect = self.image.get_rect()
+        self.rect.left = WIDTH
+        self.rect.bottom = GROUND_Y - 50
         self.speed = speed
 
     def update(self):
@@ -133,6 +162,10 @@ def draw_text_with_shadow(screen, text, font, text_color, shadow_color, x, y):
     main_text = font.render(text, True, text_color)
     screen.blit(shadow, (x + 3, y + 3)) # 影を右下にずらす
     screen.blit(main_text, (x, y))
+
+def crouch():
+    """しゃがみの処理"""
+
 
 def main():
     pg.display.set_caption("Kokaton Run")
@@ -214,8 +247,12 @@ def main():
             current_speed = 8 + score.score_value // 10
 
             if tmr % 60 == 0:
-                obstacles.add(Obstacle(current_speed))
-            
+                ob_type = random.randint(0,100)
+                if 0 <= ob_type <= 50:
+                    obstacles.add(Obstacle(current_speed))
+                elif 51 <= ob_type <= 100:
+                    obstacles.add(Helfobstacle(current_speed))
+
             if tmr % 80 == 0:
                 coins.add(Coin(current_speed, coin_img))
 
@@ -227,6 +264,7 @@ def main():
                 se_coin.play()
                 score.coin_value += 1
 
+            # 障害物との衝突判定
             if pg.sprite.spritecollide(bird, obstacles, False):
                 game_over = True
                 pg.mixer.music.stop()
