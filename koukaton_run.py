@@ -18,6 +18,10 @@ BLACK = (0, 0, 0)
 RED = (255, 0, 0)
 SKY = (120, 200, 255)
 YELLOW = (255, 220, 0)
+GREEN = (0, 200, 0)
+BLUE = (50, 100, 255)
+BROWN = (120, 80, 40)
+GAUGE_COLOR = (255, 165, 0)
 
 def check_bound_horizontal(obj_rct: pg.Rect) -> bool:
     """
@@ -49,8 +53,13 @@ class Bird(pg.sprite.Sprite):
         self.on_ground = True
         self.jump_force = -18
         self.gravity = 1
+        self.double_jump_stock = 0
+        self.has_double_jumped = False # すでに空中で2段目を使ったか
 
-    def update(self, key_lst: list[bool]):
+    def update(self, key_lst: list[bool] = None):
+
+        if key_lst is None:
+            key_lst = pg.key.get_pressed()
         # 重力処理
         self.y_speed += self.gravity
         self.rect.y += self.y_speed
@@ -60,21 +69,31 @@ class Bird(pg.sprite.Sprite):
             self.rect.bottom = GROUND_Y
             self.y_speed = 0
             self.on_ground = True
+            self.has_double_jumped = False
         else:
             self.on_ground = False
 
+    def jump(self):
         # 状態に合わせて画像を切り替える
         if self.on_ground:
             self.image = self.img_run
         else:
             self.image = self.img_jump
 
-        # ジャンプ入力
-        if key_lst[pg.K_SPACE] and self.on_ground:
+        # 1段目ジャンプ
+        if self.on_ground:
             # ジャンプ時に効果音を鳴らす
             self.se_jump.play()
             self.y_speed = self.jump_force
             self.on_ground = False
+            return False
+        # 2段目ジャンプ（条件：ゲージ満タンかつ、まだ空中ジャンプしていない）
+        elif self.double_jump_stock:
+            self.y_speed = self.jump_force
+            self.has_double_jumped = True
+            self.double_jump_stock -= 1
+            return True # 2段ジャンプ成功を通知
+        return False
 
 class Obstacle(pg.sprite.Sprite):
     """
@@ -183,6 +202,7 @@ def main():
     is_started = False
     game_over = False
     tmr = 0
+    charge_start_tmr = 0 # 2段ジャンプ使用後のリセット用基準点
 
     title_font = pg.font.SysFont(None, 100)
     msg_font = pg.font.SysFont(None, 50)
@@ -192,12 +212,24 @@ def main():
 
     while True:
         key_lst = pg.key.get_pressed()
+
+        # 現在のチャージ量計算 (0〜600)
+        charge = tmr - charge_start_tmr
+        if charge >= 600:
+            bird.double_jump_stock += 1
+            charge_start_tmr += 600 # 溢れた分を次のチャージへ引き継ぐ
+            charge_current = tmr - charge_start_tmr # 更新
+        else:
+            bird.double_jump_ready = False
         
         # イベント処理
         for event in pg.event.get():
             if event.type == pg.QUIT:
                 return
             if event.type == pg.KEYDOWN:
+                if event.key == pg.K_SPACE and not game_over:
+                    bird.jump()
+
                 if not is_started:
                     if event.key == pg.K_SPACE:
                         is_started = True
@@ -208,6 +240,8 @@ def main():
                     if event.key == pg.K_r:
                         main()
                         return
+        
+        
 
         # プレイ中の更新処理
         if is_started and not game_over:
@@ -219,7 +253,7 @@ def main():
             if tmr % 80 == 0:
                 coins.add(Coin(current_speed, coin_img))
 
-            bird.update(key_lst)
+            bird.update(pg.key.get_pressed())
             obstacles.update()
             coins.update()
 
@@ -235,7 +269,7 @@ def main():
             for obstacle in obstacles:
                 if obstacle.rect.x < -10 and not hasattr(obstacle, "scored"):
                     score.score_value += 1
-                    obstacle.scored = True 
+                    obstacle.scored = True # 重複加算防止フラグ
 
         # ==================================
         # 描画処理
@@ -275,6 +309,16 @@ def main():
             ground_scroll_x = (tmr * current_speed) % ground_size
             for x in range(-ground_size, WIDTH + ground_size, ground_size):
                 screen.blit(ground_tile, (x - ground_scroll_x, GROUND_Y))
+            # --- 2段ジャンプゲージの描画 (6段階) ---
+            if is_started:
+                pg.draw.rect(screen, WHITE, (580, 25, 205, 35), 2) # 外枠
+                num_blocks = charge // 100 # 600 / 6 = 100 ごとに1ブロック
+                for i in range(num_blocks):
+                    pg.draw.rect(screen, GAUGE_COLOR, (585 + i*32, 30, 28, 25))
+
+                stock_font = pg.font.SysFont(None, 36)
+                stock_txt = stock_font.render(f"DOUBLE JUMP: {bird.double_jump_stock}", True, RED if bird.double_jump_stock > 0 else WHITE)
+                screen.blit(stock_txt, (580, 65))
 
             # ゲーム中のオブジェクト描画
             obstacles.draw(screen)
@@ -294,10 +338,8 @@ def main():
                 score.update(screen)
 
         pg.display.update()
-        
         if is_started and not game_over:
-            tmr += 1 
-            
+            tmr += 1
         clock.tick(60)
 
 if __name__ == "__main__":
