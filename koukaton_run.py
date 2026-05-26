@@ -31,21 +31,50 @@ def check_bound_horizontal(obj_rct: pg.Rect) -> bool:
 
 class Bird(pg.sprite.Sprite):
     """
-    プレイヤー（青い四角）に関するクラス
+    プレイヤーに関するクラス
     """
     def __init__(self, xy: tuple[int, int]):
         super().__init__()
-        self.image = pg.Surface((60, 80))
-        self.image.fill(BLUE)
+
+        # 通常時画像
+        self.normal_image = pg.Surface((60, 80))
+        self.normal_image.fill(BLUE)
+
+        # 無敵時画像
+        self.invincible_image = pg.image.load("ex5/fig/Gemini_Generated_Image_5cmamr5cmamr5cma.png").convert_alpha()
+
+
+
+        self.invincible_image = pg.transform.scale(
+            self.invincible_image,
+            (80, 80)
+        )
+
+        # 最初は通常画像
+        self.image = self.normal_image
+
         self.rect = self.image.get_rect()
         self.rect.center = xy
-        
+
         self.y_speed = 0
         self.on_ground = False
         self.jump_force = -18
         self.gravity = 1
 
-    def update(self, key_lst: list[bool]):
+    def update(self, key_lst: list[bool], invincible=False):
+
+        # 画像切り替え
+        if invincible:
+            center = self.rect.center
+            self.image = self.invincible_image
+            self.rect = self.image.get_rect()
+            self.rect.center = center
+        else:
+            center = self.rect.center
+            self.image = self.normal_image
+            self.rect = self.image.get_rect()
+            self.rect.center = center
+
         # 重力処理
         self.y_speed += self.gravity
         self.rect.y += self.y_speed
@@ -58,7 +87,7 @@ class Bird(pg.sprite.Sprite):
         else:
             self.on_ground = False
 
-        # ジャンプ入力
+        # ジャンプ
         if key_lst[pg.K_SPACE] and self.on_ground:
             self.y_speed = self.jump_force
             self.on_ground = False
@@ -206,7 +235,7 @@ def main():
                 stars.add(Star(current_speed))
 
             # 更新
-            bird.update(key_lst)
+            bird.update(key_lst, invincible)
             obstacles.update()
             coins.update()
             stars.update()
@@ -251,10 +280,7 @@ def main():
         screen.blit(bird.image, bird.rect)
         score.update(screen)
 
-        if invincible:
-            inv_font = pg.font.SysFont(None, 50)
-            inv_img = inv_font.render("INVINCIBLE!", True, YELLOW)
-            screen.blit(inv_img, (WIDTH//2 - 100, 20))
+
 
         if game_over:
             big_font = pg.font.SysFont(None, 80)
