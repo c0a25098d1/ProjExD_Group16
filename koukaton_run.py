@@ -60,6 +60,10 @@ class Bird(pg.sprite.Sprite):
         self.gravity = 1
         self.double_jump_stock = 0
         self.has_double_jumped = False # すでに空中で2段目を使ったか
+        self.invincible = 0  # 無敵時間
+        self.hit_cooldown = 0  # ← 追加
+
+
 
     def update(self, key_lst: list[bool] = None, invincible=False):
 
@@ -97,6 +101,19 @@ class Bird(pg.sprite.Sprite):
         else:
             self.on_ground = False
 
+        if self.invincible > 0:
+            self.invincible -= 1 # 無敵時間のカウントダウン
+
+        if self.hit_cooldown > 0:
+            self.hit_cooldown -= 1
+
+
+        # ジャンプ入力
+        if key_lst[pg.K_SPACE] and self.on_ground:
+            self.y_speed = self.jump_force
+            self.on_ground = False
+            return False
+
     def jump(self):
         # 状態に合わせて画像を切り替える
         if self.on_ground:
@@ -111,6 +128,7 @@ class Bird(pg.sprite.Sprite):
             self.y_speed = self.jump_force
             self.on_ground = False
             return False
+        
         # 2段目ジャンプ（条件：ゲージ満タンかつ、まだ空中ジャンプしていない）
         elif self.double_jump_stock:
             self.y_speed = self.jump_force
@@ -225,6 +243,36 @@ def draw_text_with_shadow(screen, text, font, text_color, shadow_color, x, y):
     screen.blit(shadow, (x + 3, y + 3)) # 影を右下にずらす
     screen.blit(main_text, (x, y))
 
+class Life:
+    """
+    ライフ数を表示するクラス
+    """
+    def __init__(self, num: int):
+        self.num = num
+
+    def update(self, screen: pg.Surface):
+        font = pg.font.SysFont(None, 40)
+        life_img = font.render(f"Life : {self.num}", True, BLACK)
+        screen.blit(life_img, (20, 100))
+
+class Beam(pg.sprite.Sprite):
+    """
+    障害物を破壊する弾
+    """
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = pg.Surface((20, 6))
+        self.image.fill((255, 255, 0))  # 黄色い弾
+        self.rect = self.image.get_rect()
+        self.rect.center = (x, y)
+        self.speed = 15
+
+    def update(self):
+        self.rect.x += self.speed
+        if self.rect.left > WIDTH:
+            self.kill()
+
+
 def main():
     pg.display.set_caption("Kokaton Run")
     screen = pg.display.set_mode((WIDTH, HEIGHT))
@@ -269,6 +317,7 @@ def main():
     bird = Bird((150, GROUND_Y - 40))
     obstacles = pg.sprite.Group()
     coins = pg.sprite.Group()
+    beams = pg.sprite.Group()
     score = Score()
 
     stars = pg.sprite.Group()
@@ -278,6 +327,7 @@ def main():
     invincible_start = 0
 
     is_started = False
+    life = Life(200)
     game_over = False
     tmr = 0
     charge_start_tmr = 0 # 2段ジャンプ使用後のリセット用基準点
@@ -307,6 +357,17 @@ def main():
             if event.type == pg.KEYDOWN:
                 if event.key == pg.K_SPACE and not game_over:
                     bird.jump()
+                if event.key == pg.K_r and game_over:
+                    # ゲームのリセット（mainを再帰呼び出しせず変数を初期化）
+                    main()
+                    return
+                if event.key == pg.K_l and score.coin_value >= 50 and not game_over:
+                    score.coin_value -= 50
+                    life.num += 1 #Lキーでライフ回復
+                if event.key == pg.K_b and score.coin_value >= 10 and not game_over:
+                    score.coin_value -= 10
+                    beams.add(Beam(bird.rect.right, bird.rect.centery))#Bキーで弾発射
+
 
                 if not is_started:
                     if event.key == pg.K_SPACE:
@@ -339,6 +400,7 @@ def main():
             obstacles.update()
             coins.update()
             stars.update()
+            beams.update()
 
             for coin in pg.sprite.spritecollide(bird, coins, True):
                 se_coin.play()
@@ -355,10 +417,29 @@ def main():
 
             if not invincible:
                 if pg.sprite.spritecollide(bird, obstacles, False):
-                    game_over = True
-                    pg.mixer.music.stop()
-                    se_gameover.play()
+                    if life.num <= 0:
+                        game_over = True
+                        pg.mixer.music.stop()
+                        se_gameover.play()
             
+            # 衝突判定：障害物（当たったらゲームオーバー）
+            for obstacle in pg.sprite.spritecollide(bird, obstacles, False):
+                if not invincible and bird.hit_cooldown == 0:
+                    life.num -= 1
+                    bird.hit_cooldown = 30  # ← 30フレーム無敵
+
+                else:
+                    pass  # 無敵時間中は何もしない
+                if life.num <= 0:         # ライフが0ならゲームオーバー
+                     game_over = True
+
+            # 弾と障害物の衝突
+            for beam in beams:
+                hit_list = pg.sprite.spritecollide(beam, obstacles, True)
+                if hit_list:
+                    beam.kill()
+
+            # 通過判定（画面外に消えた障害物をスコアに加算）
             for obstacle in obstacles:
                 if obstacle.rect.x < -10 and not hasattr(obstacle, "scored"):
                     score.score_value += 1
@@ -368,6 +449,23 @@ def main():
         # 描画処理
         # ==================================
         
+        # 描画
+        screen.fill(SKY) # 背景（空のみ、雲なし）
+
+        # 地面
+        pg.draw.rect(screen, GREEN, (0, GROUND_Y, WIDTH, HEIGHT - GROUND_Y))
+        pg.draw.rect(screen, BROWN, (0, GROUND_Y, WIDTH, 10))
+
+        # 【削除】ここに雲の描画処理がありましたが、削除しました
+
+        # 各オブジェクト描画
+        obstacles.draw(screen)
+        coins.draw(screen)
+        beams.draw(screen)
+        screen.blit(bird.image, bird.rect)
+        score.update(screen)
+        life.update(screen)
+
         if game_over:
             # ゲームオーバー時は他のオブジェクトの描画を一切行わない
             # 1. 明るめに調整された「died_kokaton.png」の背景を一番前に描画
@@ -429,6 +527,7 @@ def main():
             else:
                 # プレイ中のスコア表示
                 score.update(screen)
+                life.update(screen)
 
         pg.display.update()
         if is_started and not game_over:
